@@ -31,6 +31,9 @@ BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
 DEFAULT_DB = INSTANCE_DIR / "library.db"
 LOCAL_TZ = ZoneInfo(os.environ.get("LIBRARY_TIMEZONE", "Asia/Kolkata"))
+CLASS_GRADES = [str(value) for value in range(6, 13)]
+CLASS_DIVISIONS = ["A", "B", "C", "D"]
+SUMMARY_STATUSES = {"pending", "submitted", "not_needed"}
 
 
 def local_now() -> datetime:
@@ -105,6 +108,17 @@ def initialize_database(path: Path | None = None) -> None:
                 FOREIGN KEY(loan_id) REFERENCES loans(id),
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
+            CREATE TABLE IF NOT EXISTS students (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                full_name TEXT NOT NULL,
+                class_grade TEXT NOT NULL,
+                division TEXT NOT NULL,
+                roll_number TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(class_grade, division, roll_number)
+            );
+            CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_grade, division, roll_number);
             CREATE INDEX IF NOT EXISTS idx_loans_borrowed_at ON loans(borrowed_at);
             CREATE INDEX IF NOT EXISTS idx_loans_returned_at ON loans(returned_at);
             CREATE INDEX IF NOT EXISTS idx_loans_class_roll ON loans(class_name, roll_number);
@@ -186,12 +200,37 @@ def initialize_postgres(url: str) -> None:
             "CREATE INDEX IF NOT EXISTS idx_loans_class_roll ON loans(class_name, roll_number)",
             "CREATE INDEX IF NOT EXISTS idx_loans_book_title ON loans(book_title)",
             "CREATE INDEX IF NOT EXISTS idx_audit_loan_id ON audit_logs(loan_id)",
+            """CREATE TABLE IF NOT EXISTS students (
+                id BIGSERIAL PRIMARY KEY, full_name TEXT NOT NULL, class_grade TEXT NOT NULL,
+                division TEXT NOT NULL, roll_number TEXT NOT NULL, created_at TEXT NOT NULL,
+                active INTEGER NOT NULL DEFAULT 1, UNIQUE(class_grade, division, roll_number))""",
+            "CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_grade, division, roll_number)",
         ]
         for statement in statements:
             connection.execute(statement)
         connection.commit()
     finally:
         connection.close()
+
+
+def ensure_extended_schema(connection, use_postgres: bool) -> None:
+    """Add student and summary fields without dropping existing records."""
+    if use_postgres:
+        columns = {row["column_name"] for row in connection.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'loans'"
+        ).fetchall()}
+        if "student_id" not in columns:
+            connection.execute("ALTER TABLE loans ADD COLUMN student_id BIGINT")
+        if "summary_status" not in columns:
+            connection.execute("ALTER TABLE loans ADD COLUMN summary_status TEXT NOT NULL DEFAULT 'pending'")
+    else:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(loans)").fetchall()}
+        if "student_id" not in columns:
+            connection.execute("ALTER TABLE loans ADD COLUMN student_id INTEGER")
+        if "summary_status" not in columns:
+            connection.execute("ALTER TABLE loans ADD COLUMN summary_status TEXT NOT NULL DEFAULT 'pending'")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_loans_student_id ON loans(student_id)")
+    connection.commit()
 
 
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
@@ -215,6 +254,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     else:
         Path(app.config["DATABASE"]).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
         initialize_database(Path(app.config["DATABASE"]))
+    bootstrap_connection = connect_postgres(app.config["DATABASE_URL"]) if use_postgres else connect_db(Path(app.config["DATABASE"]))
+    try:
+        ensure_extended_schema(bootstrap_connection, use_postgres)
+    finally:
+        bootstrap_connection.close()
 
     def db():
         if "db" not in g:
@@ -279,7 +323,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.context_processor
     def inject_user():
-        return {"current_username": session.get("username", ""), "today_date": local_now().date().isoformat()}
+        return {"current_username": session.get("username", ""), "today_date": local_now().date().isoformat(), "school_name": "Kasturba English Medium School", "class_grades": CLASS_GRADES, "class_divisions": CLASS_DIVISIONS}
 
     @app.route("/")
     def index():
@@ -359,6 +403,69 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         recent = db().execute("SELECT * FROM loans ORDER BY id DESC LIMIT 6").fetchall()
         return render_template("dashboard.html", stats=stats, recent=recent)
 
+    @app.route("/students")
+    @login_required
+    def students():
+        grade = clean(request.args.get("grade", ""), 2)
+        division = clean(request.args.get("division", ""), 1).upper()
+        query = clean(request.args.get("q", ""), 100)
+        clauses, params = ["active = 1"], []
+        if grade in CLASS_GRADES:
+            clauses.append("class_grade = ?")
+            params.append(grade)
+        if division in CLASS_DIVISIONS:
+            clauses.append("division = ?")
+            params.append(division)
+        if query:
+            term = f"%{query}%"
+            clauses.append("(full_name LIKE ? OR roll_number LIKE ?)")
+            params.extend([term, term])
+        roster = db().execute("SELECT * FROM students WHERE " + " AND ".join(clauses) + " ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER), roll_number LIMIT 1000", params).fetchall()
+        counts = db().execute("SELECT class_grade, division, COUNT(*) AS total FROM students WHERE active = 1 GROUP BY class_grade, division").fetchall()
+        return render_template("students.html", students=roster, selected_grade=grade, selected_division=division, query=query, class_counts=counts)
+
+    @app.route("/students/new", methods=["GET", "POST"])
+    @login_required
+    def new_student():
+        values = {"full_name": "", "class_grade": "6", "division": "A", "roll_number": ""}
+        if request.method == "POST":
+            name = clean(request.form.get("full_name", ""), 100)
+            grade = clean(request.form.get("class_grade", ""), 2)
+            division = clean(request.form.get("division", ""), 1).upper()
+            roll = clean(request.form.get("roll_number", ""), 12)
+            values = {"full_name": name, "class_grade": grade, "division": division, "roll_number": roll}
+            if not name or grade not in CLASS_GRADES or division not in CLASS_DIVISIONS or not roll.isdigit() or int(roll) < 1:
+                flash("Enter a name, class 6–12, division A–D, and a positive numeric roll number.", "error")
+            else:
+                try:
+                    cursor = db().execute("INSERT INTO students (full_name, class_grade, division, roll_number, created_at) VALUES (?, ?, ?, ?, ?)", (name, grade, division, str(int(roll)), timestamp_now()))
+                    student_id = cursor.lastrowid
+                    log_action(None, "student_added", f"{name} · Class {grade}-{division} · Roll {roll}")
+                    db().commit()
+                    flash("Student added to the class register.", "success")
+                    return redirect(url_for("student_detail", student_id=student_id))
+                except Exception as exc:
+                    if not isinstance(exc, sqlite3.IntegrityError) and not (psycopg and isinstance(exc, psycopg.IntegrityError)):
+                        raise
+                    db().rollback()
+                    flash("That roll number already exists in this class and division.", "error")
+        return render_template("new_student.html", values=values)
+
+    @app.route("/students/<int:student_id>")
+    @login_required
+    def student_detail(student_id: int):
+        student = db().execute("SELECT * FROM students WHERE id = ?", (student_id,)).fetchone()
+        if not student:
+            abort(404)
+        class_name = f"{student['class_grade']}-{student['division']}"
+        history = db().execute("SELECT * FROM loans WHERE student_id = ? OR (student_id IS NULL AND class_name = ? AND roll_number = ?) ORDER BY id DESC LIMIT 500", (student_id, class_name, student["roll_number"])).fetchall()
+        summary = db().execute("""SELECT COUNT(*) AS total,
+            SUM(CASE WHEN returned_at = '' THEN 1 ELSE 0 END) AS active,
+            SUM(CASE WHEN summary_status = 'submitted' THEN 1 ELSE 0 END) AS summaries_submitted,
+            SUM(CASE WHEN summary_status = 'pending' THEN 1 ELSE 0 END) AS summaries_pending
+            FROM loans WHERE student_id = ?""", (student_id,)).fetchone()
+        return render_template("student_detail.html", student=student, history=history, summary=summary)
+
     @app.route("/loans")
     @login_required
     def loans():
@@ -382,9 +489,15 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def new_loan():
         if request.method == "POST":
             title = clean(request.form.get("book_title", ""), 180)
-            student = clean(request.form.get("student_name", ""), 100)
-            class_name = clean(request.form.get("class_name", ""), 40)
-            roll = clean(request.form.get("roll_number", ""), 30)
+            student_id_raw = clean(request.form.get("student_id", ""), 12)
+            student_id = int(student_id_raw) if student_id_raw.isdigit() else None
+            student_record = db().execute("SELECT * FROM students WHERE id = ? AND active = 1", (student_id,)).fetchone() if student_id else None
+            student = student_record["full_name"] if student_record else clean(request.form.get("student_name", ""), 100)
+            class_name = f"{student_record['class_grade']}-{student_record['division']}" if student_record else clean(request.form.get("class_name", ""), 40)
+            roll = student_record["roll_number"] if student_record else clean(request.form.get("roll_number", ""), 30)
+            summary_status = request.form.get("summary_status", "pending")
+            if summary_status not in SUMMARY_STATUSES:
+                summary_status = "pending"
             due = clean(request.form.get("due_date", ""), 10)
             notes = clean(request.form.get("notes", ""), 300)
             if not due:
@@ -398,15 +511,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                     abort(400, description="Enter a valid expected return date.")
             now = timestamp_now()
             cursor = db().execute("""
-                INSERT INTO loans (book_title, student_name, class_name, roll_number, borrowed_at, due_date, notes, created_by, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (title, student, class_name, roll, now, due, notes, session["user_id"], now))
+                INSERT INTO loans (book_title, student_name, class_name, roll_number, borrowed_at, due_date, notes, created_by, updated_at, student_id, summary_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (title, student, class_name, roll, now, due, notes, session["user_id"], now, student_id if student_record else None, summary_status))
             loan_id = cursor.lastrowid
             log_action(loan_id, "borrowed", f"Borrowed by {student or 'student'} / {class_name} / {roll}")
             db().commit()
             flash("Borrowing record saved.", "success")
             return redirect(url_for("loan_detail", loan_id=loan_id))
-        return render_template("new_loan.html", values={"due_date": (local_now().date() + timedelta(days=14)).isoformat()})
+        roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
+        return render_template("new_loan.html", values={"due_date": (local_now().date() + timedelta(days=14)).isoformat()}, students=roster)
 
     @app.route("/loans/<int:loan_id>")
     @login_required
@@ -436,6 +550,21 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 db().rollback()
                 flash("The record changed before the return could be saved. Refresh and check its status.", "error")
         return redirect(url_for("loan_detail", loan_id=loan_id))
+
+    @app.route("/loans/<int:loan_id>/summary", methods=["POST"])
+    @login_required
+    def update_summary(loan_id: int):
+        record = db().execute("SELECT * FROM loans WHERE id = ?", (loan_id,)).fetchone()
+        if not record:
+            abort(404)
+        status = request.form.get("summary_status", "")
+        if status not in SUMMARY_STATUSES:
+            abort(400, description="Choose a valid book-summary status.")
+        db().execute("UPDATE loans SET summary_status = ?, updated_at = ? WHERE id = ?", (status, timestamp_now(), loan_id))
+        log_action(loan_id, "summary_status_updated", f"Book summary status: {status.replace('_', ' ')}")
+        db().commit()
+        flash("Book-summary status updated.", "success")
+        return redirect(request.form.get("next") or url_for("loan_detail", loan_id=loan_id))
 
     @app.route("/loans/<int:loan_id>/edit", methods=["GET", "POST"])
     @login_required
