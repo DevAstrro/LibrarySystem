@@ -424,7 +424,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             params.extend([term, term])
         roster = db().execute("SELECT * FROM students WHERE " + " AND ".join(clauses) + " ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER), roll_number LIMIT 1000", params).fetchall()
         counts = db().execute("SELECT class_grade, division, COUNT(*) AS total FROM students WHERE active = 1 GROUP BY class_grade, division").fetchall()
-        return render_template("students.html", students=roster, selected_grade=grade, selected_division=division, query=query, class_counts=counts)
+        return render_template("students.html", students=roster, selected_grade=grade, selected_division=division, query=query, class_counts=counts, class_grades=CLASS_GRADES, class_divisions=CLASS_DIVISIONS)
 
     @app.route("/students/export.csv")
     @login_required
@@ -467,8 +467,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                     student_id = cursor.lastrowid
                     log_action(None, "student_added", f"{name} · Class {grade}-{division} · Roll {roll}")
                     db().commit()
-                    flash("Student added to the class register.", "success")
-                    return redirect(url_for("student_detail", student_id=student_id))
+                    flash(f"{name} added to Class {grade}-{division}, roll {roll}.", "success")
+                    return redirect(url_for("students", grade=grade, division=division))
                 except Exception as exc:
                     if not isinstance(exc, sqlite3.IntegrityError) and not (psycopg and isinstance(exc, psycopg.IntegrityError)):
                         raise
@@ -517,9 +517,6 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             student_id_raw = clean(request.form.get("student_id", ""), 12)
             student_id = int(student_id_raw) if student_id_raw.isdigit() else None
             student_record = db().execute("SELECT * FROM students WHERE id = ? AND active = 1", (student_id,)).fetchone() if student_id else None
-            student = student_record["full_name"] if student_record else clean(request.form.get("student_name", ""), 100)
-            class_name = f"{student_record['class_grade']}-{student_record['division']}" if student_record else clean(request.form.get("class_name", ""), 40)
-            roll = student_record["roll_number"] if student_record else clean(request.form.get("roll_number", ""), 30)
             summary_status = request.form.get("summary_status", "pending")
             if summary_status not in SUMMARY_STATUSES:
                 summary_status = "pending"
@@ -527,8 +524,17 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             notes = clean(request.form.get("notes", ""), 300)
             if not due:
                 due = (local_now().date() + timedelta(days=14)).isoformat()
-            if not title or not class_name or not (student or roll):
-                abort(400, description="Book title, class, and at least the student's name or roll number are required.")
+            if not student_record:
+                flash("Choose a student from the selected class and division.", "error")
+                roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
+                return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster)
+            student = student_record["full_name"]
+            class_name = f"{student_record['class_grade']}-{student_record['division']}"
+            roll = student_record["roll_number"]
+            if not title:
+                flash("Enter the book title.", "error")
+                roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
+                return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster)
             if due:
                 try:
                     date.fromisoformat(due)
