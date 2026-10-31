@@ -17,7 +17,7 @@ from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from flask import (
-    Flask, abort, flash, g, make_response, redirect,
+    Flask, abort, flash, g, has_request_context, make_response, redirect,
     render_template, request, send_file, session, url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -165,9 +165,9 @@ class PostgresConnection:
         cur = self.raw.cursor()
         cur.execute(query, params)
         elapsed_ms = (time.perf_counter() - started) * 1000
-        if hasattr(g, "sql_count"):
-            g.sql_count += 1
-            g.sql_ms += elapsed_ms
+        if has_request_context():
+            g.sql_count = getattr(g, "sql_count", 0) + 1
+            g.sql_ms = getattr(g, "sql_ms", 0.0) + elapsed_ms
         if elapsed_ms >= 100:
             # Log SQL shape only: never log query parameters or student information.
             logger.warning("slow_sql duration_ms=%.1f statement=%s", elapsed_ms, " ".join(query.split())[:180])
