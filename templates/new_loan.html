@@ -1,1 +1,19 @@
-{% extends 'base.html' %}{% block title %}Record a borrowed book{% endblock %}{% block content %}<div class="page-heading"><a class="back-link" href="{{ url_for('dashboard') }}">← Overview</a><p class="eyebrow">NEW TRANSACTION</p><h1>Record a borrowed book</h1><p class="muted">Borrowing date is recorded automatically.</p></div><div class="form-layout"><form method="post" class="panel form-panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Book name <span class="required">*</span><input name="book_title" value="{{ values.get('book_title','') }}" required maxlength="200" autofocus></label><div class="form-grid"><label>Student name<input name="student_name" value="{{ values.get('student_name','') }}" maxlength="100"></label><label>Class / section <span class="required">*</span><input name="class_name" value="{{ values.get('class_name','') }}" required maxlength="40" placeholder="10-A"></label><label>Roll number<input name="roll_number" value="{{ values.get('roll_number','') }}" maxlength="30"></label><label>Expected return date<input type="date" name="due_date" value="{{ values.get('due_date','') }}"></label></div><label>Notes<textarea name="notes" rows="3" maxlength="300">{{ values.get('notes','') }}</textarea></label><div class="form-actions"><a class="button button-secondary" href="{{ url_for('dashboard') }}">Cancel</a><button class="button button-primary" type="submit">Save borrowing record</button></div></form></div>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Record a book{% endblock %}
+{% block content %}
+<div class="page-heading"><a class="back-link" href="{{ url_for('dashboard') }}">← Overview</a><p class="eyebrow">NEW BORROWING</p><h1>Record a book</h1><p class="muted">Add the essentials. The borrow date is automatic, and the due date defaults to 14 days from today.</p></div>
+<div class="form-layout"><form method="post" class="panel form-panel">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<label>Book title <span class="required">*</span><input name="book_title" value="{{ values.get('book_title','') }}" required maxlength="180" placeholder="Enter the book title" autofocus></label>
+<div class="form-grid">
+<label>Student name<input name="student_name" value="{{ values.get('student_name','') }}" maxlength="100" placeholder="Full name"></label>
+<label>Class / section <span class="required">*</span><input name="class_name" value="{{ values.get('class_name','') }}" required maxlength="40" placeholder="e.g. 10-A"></label>
+<label>Roll number<input name="roll_number" value="{{ values.get('roll_number','') }}" maxlength="30" placeholder="Optional if name is entered"></label>
+<label>Due date <span class="field-hint">14-day loan</span><input type="date" name="due_date" value="{{ values.get('due_date','') }}" required></label>
+</div>
+<p class="form-hint">You can change the due date if your school uses a different return schedule. Enter either the student's name or roll number.</p>
+<label>Notes <span class="field-hint">Optional</span><textarea name="notes" rows="2" maxlength="300" placeholder="Anything the librarian needs to know">{{ values.get('notes','') }}</textarea></label>
+<div class="form-actions"><a class="button button-secondary" href="{{ url_for('dashboard') }}">Cancel</a><button class="button button-primary" type="submit">Save borrowing</button></div>
+</form>
+<aside class="side-tip"><div class="tip-icon">↗</div><h3>Quick and simple</h3><ul><li>Borrow date is recorded automatically.</li><li>Return date is set to 14 days.</li><li>Due-today and overdue books are highlighted.</li><li>Mark a book returned from its record.</li></ul></aside></div>
+{% endblock %}
