@@ -239,7 +239,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.config.update(
         SECRET_KEY=supplied_config.get("SECRET_KEY") or os.environ.get("APP_SECRET_KEY") or get_or_create_secret_key(),
         DATABASE=str(supplied_config.get("DATABASE") or get_database_path()),
-        DATABASE_URL=os.environ.get("DATABASE_URL", ""),
+        DATABASE_URL=os.environ.get("DATABASE_URL_POOLED") or os.environ.get("DATABASE_URL", ""),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
