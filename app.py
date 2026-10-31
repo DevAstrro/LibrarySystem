@@ -466,6 +466,21 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             if not name or grade not in CLASS_GRADES or division not in CLASS_DIVISIONS or not roll.isdigit() or int(roll) < 1:
                 flash("Enter a name, class 6–12, division A–D, and a positive numeric roll number.", "error")
             else:
+                duplicate_name = db().execute(
+                    "SELECT id, full_name, roll_number FROM students "
+                    "WHERE active = 1 AND class_grade = ? AND division = ? "
+                    "AND LOWER(TRIM(full_name)) = LOWER(?) LIMIT 1",
+                    (grade, division, name.strip()),
+                ).fetchone()
+                if duplicate_name and request.form.get("confirm_duplicate_name") != "yes":
+                    flash(
+                        f"Another student named {duplicate_name['full_name']} is already in Class {grade}-{division} "
+                        f"(roll {duplicate_name['roll_number']}). Check whether this is the same student before saving.",
+                        "error",
+                    )
+                    return render_template(
+                        "new_student.html", values=values, duplicate_name=duplicate_name
+                    )
                 try:
                     cursor = db().execute("INSERT INTO students (full_name, class_grade, division, roll_number, created_at) VALUES (?, ?, ?, ?, ?)", (name, grade, division, str(int(roll)), timestamp_now()))
                     student_id = cursor.lastrowid
