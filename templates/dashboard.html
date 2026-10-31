@@ -2,8 +2,8 @@
 {% block title %}Overview{% endblock %}
 {% block content %}
 <div class="page-heading heading-row">
-  <div><p class="eyebrow">SCHOOL LIBRARY</p><h1>Good day, {{ current_username }}.</h1><p class="muted">Your borrowing activity, at a glance.</p></div>
-  <a class="button button-primary" href="{{ url_for('new_loan') }}">＋ Record a book</a>
+  <div><p class="eyebrow">KASTURBA ENGLISH MEDIUM SCHOOL</p><h1>Library overview</h1><p class="muted">Welcome, {{ current_username }}. Track reading, returns and student activity in one place.</p></div>
+  <div class="form-actions"><a class="button button-secondary" href="{{ url_for('new_student') }}">＋ Add student</a><a class="button button-primary" href="{{ url_for('new_loan') }}">＋ Record a book</a></div>
 </div>
 <section class="stats-grid">
   <article class="stat-card"><span>Currently borrowed</span><div class="stat-number">{{ stats.active or 0 }}</div></article>
@@ -27,4 +27,5 @@
   </tbody></table></div>
   {% else %}<div class="empty-state"><div class="empty-icon">＋</div><h3>No books recorded yet</h3><p>Add a book when a student borrows it. The return date is set automatically to 14 days.</p><a class="button button-primary" href="{{ url_for('new_loan') }}">Record first book</a></div>{% endif %}
 </section>
+<section class="panel"><div class="panel-heading"><div><h2>Class register</h2><p class="muted compact">Open a class roster to view students and individual histories.</p></div><a class="text-link" href="{{ url_for('students') }}">All students →</a></div><div class="class-shortcuts">{% for grade in class_grades %}<a class="class-chip" href="{{ url_for('students', grade=grade) }}"><span>Class {{ grade }}</span><small>View roster ↗</small></a>{% endfor %}</div></section>
 {% endblock %}
