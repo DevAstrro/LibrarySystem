@@ -424,6 +424,29 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         counts = db().execute("SELECT class_grade, division, COUNT(*) AS total FROM students WHERE active = 1 GROUP BY class_grade, division").fetchall()
         return render_template("students.html", students=roster, selected_grade=grade, selected_division=division, query=query, class_counts=counts)
 
+    @app.route("/students/export.csv")
+    @login_required
+    def export_students_csv():
+        grade = clean(request.args.get("grade", ""), 2)
+        division = clean(request.args.get("division", ""), 1).upper()
+        clauses, params = ["active = 1"], []
+        if grade in CLASS_GRADES:
+            clauses.append("class_grade = ?")
+            params.append(grade)
+        if division in CLASS_DIVISIONS:
+            clauses.append("division = ?")
+            params.append(division)
+        records = db().execute("SELECT full_name, class_grade, division, roll_number FROM students WHERE " + " AND ".join(clauses) + " ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)", params).fetchall()
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(["Student name", "Class", "Division", "Roll number"])
+        for row in records:
+            writer.writerow([row[key] for key in ("full_name", "class_grade", "division", "roll_number")])
+        response = make_response("\ufeff" + output.getvalue())
+        response.headers["Content-Type"] = "text/csv; charset=utf-8"
+        response.headers["Content-Disposition"] = "attachment; filename=kems-student-register.csv"
+        return response
+
     @app.route("/students/new", methods=["GET", "POST"])
     @login_required
     def new_student():
