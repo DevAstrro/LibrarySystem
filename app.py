@@ -27,9 +27,11 @@ logger = logging.getLogger("kems.performance")
 try:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 except ImportError:  # PostgreSQL is optional for local SQLite development.
     psycopg = None
     dict_row = None
+    ConnectionPool = None
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
@@ -127,6 +129,7 @@ def initialize_database(path: Path | None = None) -> None:
             CREATE INDEX IF NOT EXISTS idx_loans_returned_at ON loans(returned_at);
             CREATE INDEX IF NOT EXISTS idx_loans_class_roll ON loans(class_name, roll_number);
             CREATE INDEX IF NOT EXISTS idx_loans_book_title ON loans(book_title);
+            CREATE INDEX IF NOT EXISTS idx_students_active_class ON students(active, class_grade, division, roll_number);
             CREATE INDEX IF NOT EXISTS idx_audit_loan_id ON audit_logs(loan_id);
         """)
 
@@ -143,18 +146,38 @@ class PostgresCursor:
     def __init__(self, cursor, lastrowid=None):
         self._cursor = cursor
         self.lastrowid = lastrowid
+        self._closed = False
+
+    def _close(self):
+        if not self._closed:
+            self._closed = True
+            self._cursor.close()
+
     def fetchone(self):
-        return self._cursor.fetchone()
+        try:
+            return self._cursor.fetchone()
+        finally:
+            self._close()
+
     def fetchall(self):
-        return self._cursor.fetchall()
+        try:
+            return self._cursor.fetchall()
+        finally:
+            self._close()
+
     @property
     def rowcount(self):
-        return self._cursor.rowcount
+        try:
+            return self._cursor.rowcount
+        finally:
+            self._close()
 
 
 class PostgresConnection:
-    def __init__(self, raw):
+    def __init__(self, raw, pool_context=None):
         self.raw = raw
+        self.pool_context = pool_context
+        self._released = False
     def execute(self, sql, params=()):
         started = time.perf_counter()
         query = sql.replace(" COLLATE NOCASE", "").replace(" LIKE ", " ILIKE ")
@@ -173,16 +196,34 @@ class PostgresConnection:
             logger.warning("slow_sql duration_ms=%.1f statement=%s", elapsed_ms, " ".join(query.split())[:180])
         lastrowid = None
         if returning_id:
-            row = cur.fetchone()
-            if row:
-                lastrowid = row["id"]
+            try:
+                row = cur.fetchone()
+                if row:
+                    lastrowid = row["id"]
+            finally:
+                cur.close()
         return PostgresCursor(cur, lastrowid)
     def commit(self):
         self.raw.commit()
     def rollback(self):
         self.raw.rollback()
-    def close(self):
-        self.raw.close()
+    def close(self, error=None):
+        if self._released:
+            return
+        self._released = True
+        if self.pool_context is None:
+            self.raw.close()
+            return
+        try:
+            exc_type = type(error) if error is not None else None
+            traceback = error.__traceback__ if error is not None else None
+            self.pool_context.__exit__(exc_type, error, traceback)
+        except Exception:
+            logger.exception("postgres_pool_release_failed")
+            try:
+                self.raw.close()
+            except Exception:
+                pass
 
 
 def connect_postgres(url: str) -> PostgresConnection:
@@ -217,6 +258,7 @@ def initialize_postgres(url: str) -> None:
                 division TEXT NOT NULL, roll_number TEXT NOT NULL, created_at TEXT NOT NULL,
                 active INTEGER NOT NULL DEFAULT 1, UNIQUE(class_grade, division, roll_number))""",
             "CREATE INDEX IF NOT EXISTS idx_students_class ON students(class_grade, division, roll_number)",
+            "CREATE INDEX IF NOT EXISTS idx_students_active_class ON students(active, class_grade, division, roll_number)",
         ]
         for statement in statements:
             connection.execute(statement)
@@ -242,6 +284,8 @@ def ensure_extended_schema(connection, use_postgres: bool) -> None:
         if "summary_status" not in columns:
             connection.execute("ALTER TABLE loans ADD COLUMN summary_status TEXT NOT NULL DEFAULT 'pending'")
     connection.execute("CREATE INDEX IF NOT EXISTS idx_loans_student_id ON loans(student_id)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_loans_summary_status ON loans(summary_status)")
+    connection.execute("CREATE INDEX IF NOT EXISTS idx_students_active_class ON students(active, class_grade, division, roll_number)")
     connection.commit()
 
 
@@ -272,21 +316,48 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     finally:
         bootstrap_connection.close()
 
+    postgres_pool = None
+    if use_postgres:
+        if ConnectionPool is None:
+            raise RuntimeError("PostgreSQL pooling support is missing. Install requirements.txt.")
+        try:
+            pool_max_size = max(2, min(8, int(os.environ.get("DB_POOL_MAX_SIZE", "4"))))
+        except ValueError:
+            pool_max_size = 4
+        postgres_pool = ConnectionPool(
+            conninfo=app.config["DATABASE_URL"],
+            min_size=1,
+            max_size=pool_max_size,
+            timeout=5,
+            kwargs={"row_factory": dict_row, "connect_timeout": 10},
+            open=False,
+        )
+        postgres_pool.open(wait=True, timeout=15)
+        app.extensions["postgres_pool"] = postgres_pool
+
     def db():
         if "db" not in g:
             started = time.perf_counter()
-            g.db = connect_postgres(app.config["DATABASE_URL"]) if app.config["USE_POSTGRES"] else connect_db(Path(app.config["DATABASE"]))
+            if app.config["USE_POSTGRES"]:
+                pool_context = postgres_pool.connection(timeout=5)
+                raw = pool_context.__enter__()
+                g.db = PostgresConnection(raw, pool_context=pool_context)
+            else:
+                g.db = connect_db(Path(app.config["DATABASE"]))
             connect_ms = (time.perf_counter() - started) * 1000
             g.db_connect_ms = connect_ms
             if connect_ms >= 150:
-                logger.warning("slow_db_connect duration_ms=%.1f backend=%s", connect_ms, "postgres" if app.config["USE_POSTGRES"] else "sqlite")
+                logger.warning("slow_db_acquire duration_ms=%.1f backend=%s", connect_ms, "postgres_pool" if app.config["USE_POSTGRES"] else "sqlite")
         return g.db
 
     @app.teardown_appcontext
     def close_db(_error: BaseException | None = None) -> None:
         connection = g.pop("db", None)
         if connection is not None:
-            connection.close()
+            if isinstance(connection, PostgresConnection):
+                connection.close(error=_error)
+            else:
+                connection.close()
 
     def csrf_token() -> str:
         if "csrf_token" not in session:
@@ -326,7 +397,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "same-origin"
-        response.headers["Cache-Control"] = "no-store"
+        if request.endpoint == "static" and response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=3600"
+        else:
+            response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'"
         return response
 
@@ -362,8 +436,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.route("/")
     def index():
+        if session.get("user_id"):
+            return redirect(url_for("dashboard"))
         count = db().execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
-        return redirect(url_for("dashboard" if session.get("user_id") else ("login" if count else "setup")))
+        return redirect(url_for("login" if count else "setup"))
 
     @app.route("/setup", methods=["GET", "POST"])
     def setup():
@@ -427,18 +503,22 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.route("/dashboard")
     @login_required
     def dashboard():
+        today = local_now().date().isoformat()
         stats = db().execute("""
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN returned_at = '' THEN 1 ELSE 0 END) AS active,
                    SUM(CASE WHEN returned_at <> '' THEN 1 ELSE 0 END) AS returned,
                    SUM(CASE WHEN returned_at = '' AND due_date <> '' AND due_date < ? THEN 1 ELSE 0 END) AS overdue,
-                   SUM(CASE WHEN returned_at = '' AND due_date = ? THEN 1 ELSE 0 END) AS due_today
+                   SUM(CASE WHEN returned_at = '' AND due_date = ? THEN 1 ELSE 0 END) AS due_today,
+                   (SELECT COUNT(*) FROM students WHERE active = 1) AS student_count,
+                   (SELECT COUNT(*) FROM loans WHERE summary_status = 'pending') AS summary_pending
             FROM loans
-        """, (local_now().date().isoformat(), local_now().date().isoformat())).fetchone()
+        """, (today, today)).fetchone()
         recent = db().execute("SELECT * FROM loans ORDER BY id DESC LIMIT 6").fetchall()
-        student_count = db().execute("SELECT COUNT(*) AS count FROM students WHERE active = 1").fetchone()["count"]
-        summary_pending = db().execute("SELECT COUNT(*) AS count FROM loans WHERE summary_status = 'pending'").fetchone()["count"]
-        return render_template("dashboard.html", stats=stats, recent=recent, student_count=student_count, summary_pending=summary_pending)
+        return render_template(
+            "dashboard.html", stats=stats, recent=recent,
+            student_count=stats["student_count"], summary_pending=stats["summary_pending"],
+        )
 
     @app.route("/students")
     @login_required
