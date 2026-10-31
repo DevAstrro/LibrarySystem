@@ -288,7 +288,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.route("/setup", methods=["GET", "POST"])
     def setup():
-        if db().execute("SELECT COUNT(*) FROM users").fetchone()[0]:
+        if db().execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]:
             return redirect(url_for("login"))
         if request.method == "POST":
             username = clean(request.form.get("username", ""), 32)
