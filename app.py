@@ -160,8 +160,17 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     def login_required(view: Callable):
         @wraps(view)
         def wrapped(*args, **kwargs):
-            if not session.get("user_id"):
+            user_id = session.get("user_id")
+            if not user_id:
                 return redirect(url_for("login", next=request.path))
+            # A signed cookie can outlive a reset/replaced SQLite database on
+            # ephemeral hosts. Never trust a session unless its user still exists.
+            user = db().execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
+            if user is None:
+                session.clear()
+                user_count = db().execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                return redirect(url_for("setup" if user_count == 0 else "login"))
+            session["username"] = user["username"]
             return view(*args, **kwargs)
         return wrapped
 
