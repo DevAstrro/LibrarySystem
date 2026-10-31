@@ -3,11 +3,13 @@ from __future__ import annotations
 import csv
 import hmac
 import io
+import logging
 import os
 import re
 import secrets
 import sqlite3
 import tempfile
+import time
 from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -19,6 +21,8 @@ from flask import (
     render_template, request, send_file, session, url_for,
 )
 from werkzeug.security import check_password_hash, generate_password_hash
+
+logger = logging.getLogger("kems.performance")
 
 try:
     import psycopg
@@ -152,6 +156,7 @@ class PostgresConnection:
     def __init__(self, raw):
         self.raw = raw
     def execute(self, sql, params=()):
+        started = time.perf_counter()
         query = sql.replace(" COLLATE NOCASE", "").replace(" LIKE ", " ILIKE ")
         query = query.replace("?", "%s")
         returning_id = bool(re.match(r"\s*INSERT\s+INTO\s+(users|loans|audit_logs|students)\b", query, re.I)) and "RETURNING" not in query.upper()
@@ -159,6 +164,13 @@ class PostgresConnection:
             query = query.rstrip().rstrip(";") + " RETURNING id"
         cur = self.raw.cursor()
         cur.execute(query, params)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if hasattr(g, "sql_count"):
+            g.sql_count += 1
+            g.sql_ms += elapsed_ms
+        if elapsed_ms >= 100:
+            # Log SQL shape only: never log query parameters or student information.
+            logger.warning("slow_sql duration_ms=%.1f statement=%s", elapsed_ms, " ".join(query.split())[:180])
         lastrowid = None
         if returning_id:
             row = cur.fetchone()
@@ -262,7 +274,12 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     def db():
         if "db" not in g:
+            started = time.perf_counter()
             g.db = connect_postgres(app.config["DATABASE_URL"]) if app.config["USE_POSTGRES"] else connect_db(Path(app.config["DATABASE"]))
+            connect_ms = (time.perf_counter() - started) * 1000
+            g.db_connect_ms = connect_ms
+            if connect_ms >= 150:
+                logger.warning("slow_db_connect duration_ms=%.1f backend=%s", connect_ms, "postgres" if app.config["USE_POSTGRES"] else "sqlite")
         return g.db
 
     @app.teardown_appcontext
@@ -279,12 +296,30 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app.jinja_env.globals["csrf_token"] = csrf_token
 
     @app.before_request
+    def start_request_timing() -> None:
+        g.request_started_at = time.perf_counter()
+        g.sql_count = 0
+        g.sql_ms = 0.0
+
+    @app.before_request
     def csrf_protect() -> None:
         if request.method == "POST":
             supplied = request.form.get("csrf_token", "")
             expected = session.get("csrf_token", "")
             if not supplied or not expected or not hmac.compare_digest(supplied, expected):
                 abort(400, description="The form expired or could not be verified. Please go back and try again.")
+
+    @app.after_request
+    def log_request_timing(response):
+        started = getattr(g, "request_started_at", None)
+        if started is not None:
+            total_ms = (time.perf_counter() - started) * 1000
+            logger.info(
+                "request method=%s path=%s status=%s total_ms=%.1f sql_count=%s sql_ms=%.1f",
+                request.method, request.path, response.status_code, total_ms,
+                getattr(g, "sql_count", 0), getattr(g, "sql_ms", 0.0),
+            )
+        return response
 
     @app.after_request
     def security_headers(response):
