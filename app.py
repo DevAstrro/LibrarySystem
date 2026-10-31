@@ -531,7 +531,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             if not student_record:
                 flash("Choose a student from the selected class and division.", "error")
                 roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
-                return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster)
+                return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster, class_grades=CLASS_GRADES, class_divisions=CLASS_DIVISIONS)
             student = student_record["full_name"]
             class_name = f"{student_record['class_grade']}-{student_record['division']}"
             roll = student_record["roll_number"]
