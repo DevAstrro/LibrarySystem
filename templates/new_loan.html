@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Record a book{% endblock %}
 {% block content %}
-<div class="page-heading"><a class="back-link" href="{{ url_for('dashboard') }}">← Overview</a><p class="eyebrow">QUICK BORROWING ENTRY</p><h1>Record a book</h1><p class="muted">Select class, division and student in order. The return date is set automatically to 14 days.</p></div>
+<div class="page-heading"><a class="back-link" href="{{ url_for('dashboard') }}">← Overview</a><p class="eyebrow">QUICK BORROWING ENTRY</p><h1>Record a book</h1><p class="muted">Select class, division and student in order. The return date is set automatically to 14 days.</p><a class="button button-secondary" href="{{ url_for('new_student') }}">＋ Add a student</a></div>
 <form method="post" class="panel form-panel quick-loan-form" id="loan-form">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 <div class="step-label"><span>1</span><div><strong>Choose the class</strong><small>Start with the student's class</small></div></div>
@@ -32,9 +32,7 @@
     student.value = '';
     division.disabled = !grade.value;
     division.querySelector('option[value=""]').textContent = grade.value ? 'Select division' : 'Select class first';
-    Array.from(division.options).slice(1).forEach(option => {
-      option.hidden = !options.some(item => item.dataset.grade === grade.value && item.dataset.division === option.value);
-    });
+    Array.from(division.options).slice(1).forEach(option => { option.hidden = false; });
     updateStudents();
   }
   function updateStudents() {
