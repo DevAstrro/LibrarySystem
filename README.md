@@ -1,6 +1,6 @@
 # School Library Desk
 
-A locally hosted school library borrowing register built with **Flask** and **SQLite**. It records which student borrowed which book, when it was borrowed, an optional expected return date, and when it was returned.
+A school library borrowing register built with **Flask**, using SQLite for local development or **Neon PostgreSQL** for a persistent hosted deployment. It records which student borrowed which book, when it was borrowed, an optional expected return date, and when it was returned.
 
 ## Features
 
@@ -12,7 +12,7 @@ A locally hosted school library borrowing register built with **Flask** and **SQ
 - Return workflow preserves the original borrowing entry.
 - Edit corrections and view activity history.
 - Dashboard counts for total records, currently borrowed, overdue and returned.
-- CSV export and downloadable SQLite database backup.
+- CSV export; SQLite backup is available in local SQLite mode. Hosted PostgreSQL deployments should use Neon backups and CSV exports.
 - Responsive interface for computers, tablets and phones.
 - CSRF protection, parameterized SQL, database indexes, and security headers.
 
@@ -77,22 +77,24 @@ Do not share librarian credentials with students.
 
 ## Data storage and privacy
 
-By default, SQLite stores data in `instance/library.db`; a generated session signing key is stored in `instance/secret_key`. These files are intentionally ignored by Git. The database contains student names and borrowing history and must be treated as confidential school data. Do not commit the `instance` folder or share backups publicly.
+Without `DATABASE_URL`, SQLite stores data in `instance/library.db`; a generated session signing key is stored in `instance/secret_key`. With `DATABASE_URL`, application records are stored in Neon PostgreSQL. These local files are intentionally ignored by Git. The database contains student names and borrowing history and must be treated as confidential school data. Do not commit the `instance` folder or share backups publicly.
 
 Optional environment variables:
 
-- `LIBRARY_DATABASE`: path to an alternate SQLite database.
+- `DATABASE_URL`: Neon PostgreSQL connection string. Prefer the pooled connection string (`-pooler`) for the hosted Flask service. When set, the app creates/uses the PostgreSQL schema automatically. The PostgreSQL driver is installed from `requirements.txt`.
+- `LIBRARY_DATABASE`: path to an alternate SQLite database for local development.
 - `APP_SECRET_KEY`: secret key provided by the administrator; otherwise a random key is generated and saved locally.
 - `LIBRARY_TIMEZONE`: timezone for recorded dates; defaults to `Asia/Kolkata`.
 - `COOKIE_SECURE=1`: use only after HTTPS is configured; do not enable for local HTTP.
 
 ## Backups and restore
 
-1. Sign in and use **Records → Database backup** to download a full SQLite backup.
-2. Keep a copy on separate school-approved storage in a secure location.
-3. Periodically test restoring a backup to a separate test database.
+1. Export CSV from **Records** for a portable copy of borrowing records.
+2. For SQLite mode, use **Download backup** to download a full database backup.
+3. For Neon PostgreSQL, configure and test Neon backups/restore options in the Neon console; the SQLite backup endpoint is not a PostgreSQL dump.
+4. Keep backups on separate school-approved storage in a secure location and periodically test restoring them.
 
-To restore a verified backup, stop the server, preserve the current database, replace `instance/library.db` with the backup, and restart the server. Never overwrite the live database while the app is running. CSV is useful for spreadsheets but is not a full database backup.
+To restore a SQLite backup, stop the server, preserve the current database, replace `instance/library.db`, and restart. Never overwrite a live database while the app is running. CSV is useful for spreadsheets but is not a full database backup.
 
 ## Good operating practices
 
@@ -128,3 +130,14 @@ python -m unittest discover -s tests -v
 ```
 
 The tests should use a temporary database, not the live library database.
+
+
+## Neon / Render deployment
+
+1. Create a Neon project and keep its database password private. If a connection string has been shared, rotate the database password first.
+2. In Neon, copy the pooled connection string with connection pooling enabled.
+3. In Render → your web service → **Environment**, add `DATABASE_URL` with that connection string. Do not commit it to GitHub or put it in frontend code.
+4. Keep `APP_SECRET_KEY` set to a long, random secret and use HTTPS so secure cookies can be enabled with `COOKIE_SECURE=1`.
+5. After deployment, open the site and create the first librarian account if the PostgreSQL database is empty. Test with a dummy borrowing record before entering real school data.
+
+The app creates PostgreSQL tables automatically but does not automatically import existing records from an old SQLite database. Export/plan a migration before switching if you already have records you need to preserve. Confirm school approval and privacy requirements before entering real student data.
