@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Add student{% endblock %}
+{% block content %}
+<div class="page-heading"><a class="back-link" href="{{ url_for('students') }}">← Student register</a><p class="eyebrow">CLASS REGISTER</p><h1>Add a student</h1><p class="muted">Use the official class, division and roll number. Each roll number must be unique within its class and division.</p></div>
+<form method="post" class="panel form-panel"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<label>Full name <span class="required">*</span><input name="full_name" value="{{ values.full_name }}" required maxlength="100" autofocus placeholder="Student's full name"></label>
+<div class="form-grid"><label>Class <span class="required">*</span><select name="class_grade" required>{% for grade in class_grades %}<option value="{{ grade }}" {% if values.class_grade == grade %}selected{% endif %}>Class {{ grade }}</option>{% endfor %}</select></label>
+<label>Division <span class="required">*</span><select name="division" required>{% for division in class_divisions %}<option value="{{ division }}" {% if values.division == division %}selected{% endif %}>Division {{ division }}</option>{% endfor %}</select></label>
+<label>Roll number <span class="required">*</span><input type="number" name="roll_number" min="1" max="999" value="{{ values.roll_number }}" required placeholder="e.g. 12"></label></div>
+<p class="form-hint">The roster currently supports divisions A, B, C and D. Duplicate roll numbers in the same class/division are prevented.</p>
+<div class="form-actions"><a class="button button-secondary" href="{{ url_for('students') }}">Cancel</a><button class="button button-primary" type="submit">Save student</button></div></form>
+{% endblock %}
