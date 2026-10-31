@@ -1,5 +1,39 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#17243a"><title>{% block title %}Library Desk{% endblock %} · School Library</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"><script defer src="{{ url_for('static', filename='app.js') }}"></script></head>
-<body><div class="app-shell"><header class="topbar"><a class="brand" href="{{ url_for('dashboard') if session.get('user_id') else url_for('login') }}"><span class="brand-mark">L</span><span><strong>Library Desk</strong><small>School borrowing records</small></span></a>
-{% if session.get('user_id') %}<nav class="top-nav"><a href="{{ url_for('dashboard') }}">Overview</a><a href="{{ url_for('loans') }}">Records</a><a href="{{ url_for('audit') }}">Activity</a></nav><div class="top-user"><span>{{ session.get('username','Librarian') }}</span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button-quiet button-small" type="submit">Sign out</button></form></div>{% endif %}</header><main class="main-content">
-{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack">{% for category,message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}{% block content %}{% endblock %}</main><footer class="footer">School Library · Private librarian workspace <span>Keep regular backups of your records</span></footer></div></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="A calm, secure workspace for school library borrowing records.">
+  <title>{% block title %}Library Desk{% endblock %} · School Library</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
+</head>
+<body>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('dashboard') if session.get('user_id') else url_for('login') }}">
+        <span class="brand-mark"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 5.5v16M8 7h8M8 11h7"/></svg></span>
+        <span class="brand-copy"><strong>Library<span>Desk</span></strong><small>School library workspace</small></span>
+      </a>
+      {% if session.get('user_id') %}
+      <nav class="top-nav" aria-label="Main navigation">
+        <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><span>⌂</span> Overview</a>
+        <a class="{% if request.endpoint in ['loans','new_loan','loan_detail','edit_loan'] %}active{% endif %}" href="{{ url_for('loans') }}"><span>▤</span> Records</a>
+        <a class="{% if request.endpoint == 'audit' %}active{% endif %}" href="{{ url_for('audit') }}"><span>◷</span> Activity</a>
+      </nav>
+      <div class="top-user"><span class="avatar">{{ current_username[:1]|upper }}</span><span class="user-name"><strong>{{ current_username }}</strong><small>Librarian</small></span><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button-quiet button-small" type="submit" aria-label="Sign out">↗</button></form></div>
+      {% endif %}
+    </header>
+    <main class="main-content">
+      {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-stack" role="status">{% for category,message in messages %}<div class="flash flash-{{ category }}"><span class="flash-mark">{% if category == 'success' %}✓{% else %}!{% endif %}</span>{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="footer"><span>✳ &nbsp; Made for a better-organised library</span><span>Private librarian workspace <i>·</i> Keep regular backups</span></footer>
+  </div>
+</body>
+</html>
