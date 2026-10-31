@@ -314,7 +314,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                     session["username"] = username
                     session.permanent = True
                     return redirect(url_for("dashboard"))
-                except Exception as exc:\n                    if not isinstance(exc, sqlite3.IntegrityError) and not (psycopg and isinstance(exc, psycopg.IntegrityError)):\n                        raise
+                except Exception as exc:
+                    if not isinstance(exc, sqlite3.IntegrityError) and not (psycopg and isinstance(exc, psycopg.IntegrityError)):
+                        raise
                     db().rollback()
                     flash("That username is already in use.", "error")
         return render_template("setup.html")
