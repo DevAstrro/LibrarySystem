@@ -1,23 +1,66 @@
 {% extends 'base.html' %}
 {% block title %}Record a book{% endblock %}
 {% block content %}
-<div class="page-heading"><a class="back-link" href="{{ url_for('dashboard') }}">← Overview</a><p class="eyebrow">NEW BORROWING</p><h1>Record a book</h1><p class="muted">Choose a student from the class register. The due date defaults to 14 days from today.</p></div>
-<div class="form-layout"><form method="post" class="panel form-panel">
+<div class="page-heading"><a class="back-link" href="{{ url_for('dashboard') }}">← Overview</a><p class="eyebrow">QUICK BORROWING ENTRY</p><h1>Record a book</h1><p class="muted">Select class, division and student in order. The return date is set automatically to 14 days.</p></div>
+<form method="post" class="panel form-panel quick-loan-form" id="loan-form">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-<label>Book title <span class="required">*</span><input name="book_title" value="{{ values.get('book_title','') }}" required maxlength="180" placeholder="Enter the book title" autofocus></label>
-<label>Student <span class="required">*</span>
-<select name="student_id" required>
-<option value="">Choose a student · class · roll number</option>
-{% for student in students %}<option value="{{ student.id }}">Class {{ student.class_grade }}-{{ student.division }} · Roll {{ student.roll_number }} · {{ student.full_name }}</option>{% endfor %}
-</select>
-{% if not students %}<span class="field-hint">No students registered yet. <a href="{{ url_for('new_student') }}">Add a student first →</a></span>{% endif %}
-</label>
-<div class="form-grid">
-<label>Due date <span class="field-hint">14-day loan</span><input type="date" name="due_date" value="{{ values.get('due_date','') }}" required></label>
-<label>Book summary <span class="field-hint">Reading follow-up</span><select name="summary_status"><option value="pending">Pending</option><option value="submitted">Already submitted</option><option value="not_needed">Not needed</option></select></label>
-</div>
-<label>Notes <span class="field-hint">Optional</span><textarea name="notes" rows="2" maxlength="300" placeholder="Anything the librarian needs to know">{{ values.get('notes','') }}</textarea></label>
-<div class="form-actions"><a class="button button-secondary" href="{{ url_for('dashboard') }}">Cancel</a><button class="button button-primary" type="submit" {% if not students %}disabled{% endif %}>Save borrowing</button></div>
+<div class="step-label"><span>1</span><div><strong>Choose the class</strong><small>Start with the student's class</small></div></div>
+<label>Class <span class="required">*</span><select id="class-grade" required><option value="">Select class</option>{% for grade in class_grades %}<option value="{{ grade }}">Class {{ grade }}</option>{% endfor %}</select></label>
+<div class="step-label"><span>2</span><div><strong>Choose the division</strong><small>Only divisions with registered students are available</small></div></div>
+<label>Division <span class="required">*</span><select id="class-division" disabled required><option value="">Select class first</option>{% for division in class_divisions %}<option value="{{ division }}">{{ division }}</option>{% endfor %}</select></label>
+<div class="step-label"><span>3</span><div><strong>Choose the student</strong><small>Students are sorted by roll number</small></div></div>
+<label>Student <span class="required">*</span><select name="student_id" id="student-id" required disabled><option value="">Select class and division first</option>{% for student in students %}<option value="{{ student.id }}" data-grade="{{ student.class_grade }}" data-division="{{ student.division }}">Roll {{ student.roll_number }} — {{ student.full_name }}</option>{% endfor %}</select><span class="field-hint" id="student-count" aria-live="polite">Choose a class to begin.</span><span class="field-hint" id="add-student-hint" hidden>No students in this class yet. <a href="{{ url_for('new_student') }}">Add a student →</a></span></label>
+<div class="form-divider"></div>
+<div class="step-label"><span>4</span><div><strong>Book details</strong><small>Record what the student is borrowing</small></div></div>
+<label>Book title <span class="required">*</span><input name="book_title" value="{{ values.get('book_title','') }}" required maxlength="180" placeholder="Enter or scan the book title" autofocus></label>
+<div class="form-grid"><label>Expected return date <input type="date" name="due_date" value="{{ values.get('due_date','') }}" required><span class="field-hint">Defaults to 14 days from today</span></label><label>Book summary <select name="summary_status"><option value="pending">Pending</option><option value="submitted">Submitted</option><option value="not_needed">Not needed</option></select></label></div>
+<label>Notes <span class="field-hint">Optional</span><textarea name="notes" rows="2" maxlength="300" placeholder="Optional note">{{ values.get('notes','') }}</textarea></label>
+<div class="form-actions"><a class="button button-secondary" href="{{ url_for('loans') }}">Cancel</a><button class="button button-primary" type="submit" id="save-loan" disabled>Save borrowing record</button></div>
 </form>
-<aside class="side-tip"><div class="tip-icon">↗</div><h3>Borrowing workflow</h3><ul><li>Select a registered student; class and roll are filled from the register.</li><li>Due date is set to 14 days.</li><li>Track book-summary submission separately from book return.</li><li>Student history stays linked across loans.</li></ul></aside></div>
+<script>
+(() => {
+  const grade = document.getElementById('class-grade');
+  const division = document.getElementById('class-division');
+  const student = document.getElementById('student-id');
+  const count = document.getElementById('student-count');
+  const hint = document.getElementById('add-student-hint');
+  const save = document.getElementById('save-loan');
+  const options = Array.from(student.querySelectorAll('option[data-grade]'));
+  function updateDivisions() {
+    division.value = '';
+    student.value = '';
+    division.disabled = !grade.value;
+    division.querySelector('option[value=""]').textContent = grade.value ? 'Select division' : 'Select class first';
+    Array.from(division.options).slice(1).forEach(option => {
+      option.hidden = !options.some(item => item.dataset.grade === grade.value && item.dataset.division === option.value);
+    });
+    updateStudents();
+  }
+  function updateStudents() {
+    const ready = grade.value && division.value;
+    student.disabled = !ready;
+    student.value = '';
+    let visible = 0;
+    options.forEach(option => {
+      const match = ready && option.dataset.grade === grade.value && option.dataset.division === division.value;
+      option.hidden = !match;
+      option.disabled = !match;
+      if (match) visible++;
+    });
+    student.querySelector('option[value=""]').textContent = ready ? (visible ? 'Select student by roll number' : 'No students in this class/division') : 'Select class and division first';
+    count.textContent = !ready ? 'Choose a class to begin.' : visible + ' student' + (visible === 1 ? '' : 's') + ' found, sorted by roll number.';
+    hint.hidden = !(ready && visible === 0);
+    save.disabled = true;
+  }
+  grade.addEventListener('change', updateDivisions);
+  division.addEventListener('change', updateStudents);
+  student.addEventListener('change', () => { save.disabled = !student.value; });
+  document.getElementById('loan-form').addEventListener('submit', event => {
+    if (!grade.value || !division.value || !student.value) {
+      event.preventDefault();
+      alert('Please choose the class, division and student before saving.');
+    }
+  });
+})();
+</script>
 {% endblock %}
