@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Activity log{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">ACCOUNTABILITY</p><h1>Activity log</h1><p class="muted">Recent borrowing, return, and correction events.</p></div></section>
+<section class="table-card"><div class="table-wrap"><table><thead><tr><th>Time</th><th>Action</th><th>Book</th><th>Librarian</th><th>Details</th></tr></thead><tbody>
+{% for item in entries %}<tr><td>{{ item.created_at }}</td><td>{{ item.action|title }}</td><td>{% if item.loan_id %}<a href="{{ url_for('loan_detail', loan_id=item.loan_id) }}">{{ item.book_title or 'Record unavailable' }}</a>{% else %}—{% endif %}</td><td>{{ item.username or 'System' }}</td><td>{{ item.details }}</td></tr>{% else %}<tr><td colspan="5">No activity recorded yet.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}
