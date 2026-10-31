@@ -24,6 +24,7 @@
   const student = document.getElementById('student-id');
   const count = document.getElementById('student-count');
   const hint = document.getElementById('add-student-hint');
+  const addStudentLink = hint.querySelector('a');
   const save = document.getElementById('save-loan');
   const options = Array.from(student.querySelectorAll('option[data-grade]'));
   function updateDivisions() {
@@ -50,6 +51,7 @@
     student.querySelector('option[value=""]').textContent = ready ? (visible ? 'Select student by roll number' : 'No students in this class/division') : 'Select class and division first';
     count.textContent = !ready ? 'Choose a class to begin.' : visible + ' student' + (visible === 1 ? '' : 's') + ' found, sorted by roll number.';
     hint.hidden = !(ready && visible === 0);
+    addStudentLink.href = '/students/new?grade=' + encodeURIComponent(grade.value || '6') + '&division=' + encodeURIComponent(division.value || 'A');
     save.disabled = true;
   }
   grade.addEventListener('change', updateDivisions);
