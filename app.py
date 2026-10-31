@@ -452,7 +452,11 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.route("/students/new", methods=["GET", "POST"])
     @login_required
     def new_student():
-        values = {"full_name": "", "class_grade": "6", "division": "A", "roll_number": ""}
+        values = {"full_name": "", "class_grade": clean(request.args.get("grade", "6"), 2), "division": clean(request.args.get("division", "A"), 1).upper(), "roll_number": ""}
+        if values["class_grade"] not in CLASS_GRADES:
+            values["class_grade"] = "6"
+        if values["division"] not in CLASS_DIVISIONS:
+            values["division"] = "A"
         if request.method == "POST":
             name = clean(request.form.get("full_name", ""), 100)
             grade = clean(request.form.get("class_grade", ""), 2)
