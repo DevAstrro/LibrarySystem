@@ -283,7 +283,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.route("/")
     def index():
-        count = db().execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        count = db().execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
         return redirect(url_for("dashboard" if session.get("user_id") else ("login" if count else "setup")))
 
     @app.route("/setup", methods=["GET", "POST"])
