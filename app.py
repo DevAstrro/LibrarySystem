@@ -176,7 +176,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.context_processor
     def inject_user():
-        return {"current_username": session.get("username", "")}
+        return {"current_username": session.get("username", ""), "today_date": local_now().date().isoformat()}
 
     @app.route("/")
     def index():
@@ -247,9 +247,10 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN returned_at = '' THEN 1 ELSE 0 END) AS active,
                    SUM(CASE WHEN returned_at <> '' THEN 1 ELSE 0 END) AS returned,
-                   SUM(CASE WHEN returned_at = '' AND due_date <> '' AND due_date < ? THEN 1 ELSE 0 END) AS overdue
+                   SUM(CASE WHEN returned_at = '' AND due_date <> '' AND due_date < ? THEN 1 ELSE 0 END) AS overdue,
+                   SUM(CASE WHEN returned_at = '' AND due_date = ? THEN 1 ELSE 0 END) AS due_today
             FROM loans
-        """, (local_now().date().isoformat(),)).fetchone()
+        """, (local_now().date().isoformat(), local_now().date().isoformat())).fetchone()
         recent = db().execute("SELECT * FROM loans ORDER BY id DESC LIMIT 6").fetchall()
         return render_template("dashboard.html", stats=stats, recent=recent)
 
@@ -281,6 +282,8 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             roll = clean(request.form.get("roll_number", ""), 30)
             due = clean(request.form.get("due_date", ""), 10)
             notes = clean(request.form.get("notes", ""), 300)
+            if not due:
+                due = (local_now().date() + timedelta(days=14)).isoformat()
             if not title or not class_name or not (student or roll):
                 abort(400, description="Book title, class, and at least the student's name or roll number are required.")
             if due:
@@ -298,7 +301,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             db().commit()
             flash("Borrowing record saved.", "success")
             return redirect(url_for("loan_detail", loan_id=loan_id))
-        return render_template("new_loan.html", values={})
+        return render_template("new_loan.html", values={"due_date": (local_now().date() + timedelta(days=14)).isoformat()})
 
     @app.route("/loans/<int:loan_id>")
     @login_required
