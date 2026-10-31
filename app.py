@@ -401,7 +401,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             FROM loans
         """, (local_now().date().isoformat(), local_now().date().isoformat())).fetchone()
         recent = db().execute("SELECT * FROM loans ORDER BY id DESC LIMIT 6").fetchall()
-        return render_template("dashboard.html", stats=stats, recent=recent)
+        student_count = db().execute("SELECT COUNT(*) AS count FROM students WHERE active = 1").fetchone()["count"]
+        summary_pending = db().execute("SELECT COUNT(*) AS count FROM loans WHERE summary_status = 'pending'").fetchone()["count"]
+        return render_template("dashboard.html", stats=stats, recent=recent, student_count=student_count, summary_pending=summary_pending)
 
     @app.route("/students")
     @login_required
