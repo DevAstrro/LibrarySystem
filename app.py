@@ -539,11 +539,16 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                 flash("Enter the book title.", "error")
                 roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
                 return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster)
-            if due:
-                try:
-                    date.fromisoformat(due)
-                except ValueError:
-                    abort(400, description="Enter a valid expected return date.")
+            try:
+                due_date = date.fromisoformat(due)
+                if due_date < local_now().date():
+                    flash("The expected return date cannot be in the past.", "error")
+                    roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
+                    return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster)
+            except ValueError:
+                flash("Enter a valid expected return date.", "error")
+                roster = db().execute("SELECT * FROM students WHERE active = 1 ORDER BY CAST(class_grade AS INTEGER), division, CAST(roll_number AS INTEGER)").fetchall()
+                return render_template("new_loan.html", values={"book_title": title, "due_date": due, "notes": notes}, students=roster)
             now = timestamp_now()
             cursor = db().execute("""
                 INSERT INTO loans (book_title, student_name, class_name, roll_number, borrowed_at, due_date, notes, created_by, updated_at, student_id, summary_status)
