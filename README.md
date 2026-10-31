@@ -1,11 +1,11 @@
-# School Library Desk
+# KEMS Library Portal — Kasturba English Medium School
 
 A school library borrowing register built with **Flask**, using SQLite for local development or **Neon PostgreSQL** for a persistent hosted deployment. It records which student borrowed which book, when it was borrowed, an optional expected return date, and when it was returned.
 
 ## Features
 
 - First-run setup for the librarian account and password hashing.
-- Record book title, student name, class/section and roll number.
+- Maintain a class-wise student register for Classes 6–12 and divisions A–D.\n- Sort students by class, division and roll number; open an individual student history.\n- Link every new borrowing record to a registered student.\n- Track book-summary status as pending, submitted or not needed.\n- Export class student registers to CSV.
 - Automatically records the borrowing date and time.
 - Search records by book, student, class or roll number.
 - Filter currently borrowed, returned and all records.
@@ -103,7 +103,7 @@ To restore a SQLite backup, stop the server, preserve the current database, repl
 3. Record each physical book as a separate borrowing entry.
 4. Mark a book returned only after it has physically been handed back.
 5. Correct individual records using the edit screen rather than deleting the database.
-6. This version tracks borrowing transactions; it does not yet provide the full catalogue or shelf locations.
+6. This version tracks student records and borrowing transactions; it does not yet provide a full book catalogue or shelf locations. The class division options are currently A–D and should be adjusted if the school uses a different division scheme.
 7. Availability is only accurate if the librarian updates returns.
 8. Get school approval before digitizing paper registers, and store only the student data the school has authorized.
 
