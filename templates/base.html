@@ -20,7 +20,7 @@
       {% if session.get('user_id') %}
       <nav class="top-nav" aria-label="Main navigation">
         <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><span>⌂</span> Overview</a>
-        <a class="{% if request.endpoint in ['students','new_student','student_detail'] %}active{% endif %}" href="{{ url_for('students') }}"><span>♙</span> Students</a>
+        <a class="{% if request.endpoint in ['students','new_student','student_detail'] %}active{% endif %}" href="{{ url_for('students') }}"><span>♙</span> Class Register</a>
         <a class="{% if request.endpoint in ['loans','new_loan','loan_detail','edit_loan'] %}active{% endif %}" href="{{ url_for('loans') }}"><span>▤</span> Loans</a>
         <a class="{% if request.endpoint == 'audit' %}active{% endif %}" href="{{ url_for('audit') }}"><span>◷</span> Activity</a>
       </nav>
