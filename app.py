@@ -154,7 +154,7 @@ class PostgresConnection:
     def execute(self, sql, params=()):
         query = sql.replace(" COLLATE NOCASE", "").replace(" LIKE ", " ILIKE ")
         query = query.replace("?", "%s")
-        returning_id = bool(re.match(r"\s*INSERT\s+INTO\s+(users|loans|audit_logs)\b", query, re.I)) and "RETURNING" not in query.upper()
+        returning_id = bool(re.match(r"\s*INSERT\s+INTO\s+(users|loans|audit_logs|students)\b", query, re.I)) and "RETURNING" not in query.upper()
         if returning_id:
             query = query.rstrip().rstrip(";") + " RETURNING id"
         cur = self.raw.cursor()
