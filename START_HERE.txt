@@ -1,0 +1,17 @@
+SCHOOL LIBRARY DESK — QUICK START
+
+1. Extract this folder on the school/library computer.
+2. Install Python 3.10+.
+3. Open Command Prompt in this folder.
+4. Run:
+     py -3 -m venv .venv
+     .venv\Scripts\activate
+     python -m pip install -r requirements.txt
+5. Run:
+     run_windows.bat
+6. Open http://127.0.0.1:8000
+7. Create the first librarian username and password.
+
+For access from other devices on the same school network, read the section
+"Share it on the school network" in README.md and use run_windows_lan.bat.
+Do not expose it to the public internet. Keep the database and backups private.
