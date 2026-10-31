@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+instance/library.db
+instance/library.db-shm
+instance/library.db-wal
+instance/secret_key
+.pytest_cache/
