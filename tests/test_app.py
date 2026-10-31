@@ -37,18 +37,28 @@ class LibrarySystemTests(unittest.TestCase):
         self.setup_librarian()
         response = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
-        self.assertIn(b"Total records", response.data)
+        self.assertIn(b"Library overview", response.data)
 
     def test_can_record_and_search_borrowed_book(self):
         self.setup_librarian()
+        response = self.client.get("/students/new")
+        token = self.csrf(response)
+        response = self.client.post("/students/new", data={
+            "csrf_token": token,
+            "full_name": "Anaya",
+            "class_grade": "10",
+            "division": "A",
+            "roll_number": "23",
+        }, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+
         response = self.client.get("/loans/new")
         token = self.csrf(response)
         response = self.client.post("/loans/new", data={
             "csrf_token": token,
             "book_title": "Wings of Fire",
-            "student_name": "Anaya",
-            "class_name": "10-A",
-            "roll_number": "23",
+            "student_id": "1",
+            "summary_status": "pending",
             "due_date": "",
             "notes": "",
         }, follow_redirects=True)
@@ -70,6 +80,12 @@ class LibrarySystemTests(unittest.TestCase):
             "confirm_password": "test-password-123",
         })
         self.assertEqual(response.status_code, 400)
+
+    def test_static_assets_are_cacheable(self):
+        response = self.client.get("/static/app.js")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("max-age=3600", response.headers.get("Cache-Control", ""))
+        self.assertGreater(len(response.data), 0)
 
 
 if __name__ == "__main__":
