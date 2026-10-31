@@ -564,7 +564,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         log_action(loan_id, "summary_status_updated", f"Book summary status: {status.replace('_', ' ')}")
         db().commit()
         flash("Book-summary status updated.", "success")
-        return redirect(request.form.get("next") or url_for("loan_detail", loan_id=loan_id))
+        return redirect(url_for("loan_detail", loan_id=loan_id))
 
     @app.route("/loans/<int:loan_id>/edit", methods=["GET", "POST"])
     @login_required
