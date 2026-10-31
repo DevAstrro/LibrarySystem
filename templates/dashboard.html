@@ -28,5 +28,5 @@
   </tbody></table></div>
   {% else %}<div class="empty-state"><div class="empty-icon">＋</div><h3>No books recorded yet</h3><p>Add a book when a student borrows it. The return date is set automatically to 14 days.</p><a class="button button-primary" href="{{ url_for('new_loan') }}">Record first book</a></div>{% endif %}
 </section>
-<section class="panel"><div class="panel-heading"><div><h2>Class register</h2><p class="muted compact">Open a class roster to view students and individual histories.</p></div><a class="text-link" href="{{ url_for('students') }}">All students →</a></div><div class="class-shortcuts">{% for grade in class_grades %}<a class="class-chip" href="{{ url_for('students', grade=grade) }}"><span>Class {{ grade }}</span><small>View roster ↗</small></a>{% endfor %}</div></section>
+
 {% endblock %}
