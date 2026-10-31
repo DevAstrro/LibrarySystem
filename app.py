@@ -162,7 +162,7 @@ class PostgresConnection:
 def connect_postgres(url: str) -> PostgresConnection:
     if psycopg is None:
         raise RuntimeError("PostgreSQL support is missing. Install dependencies from requirements.txt.")
-    raw = psycopg.connect(url, row_factory=lambda cur: lambda values: HybridRow(zip([col.name for col in cur.description], values)), connect_timeout=10)
+    raw = psycopg.connect(url, row_factory=dict_row, connect_timeout=10)
     return PostgresConnection(raw)
 
 
@@ -262,7 +262,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
             user = db().execute("SELECT id, username FROM users WHERE id = ?", (user_id,)).fetchone()
             if user is None:
                 session.clear()
-                user_count = db().execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                user_count = db().execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
                 return redirect(url_for("setup" if user_count == 0 else "login"))
             session["username"] = user["username"]
             return view(*args, **kwargs)
