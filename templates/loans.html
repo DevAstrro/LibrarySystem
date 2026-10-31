@@ -5,14 +5,14 @@
 <section class="panel">
 <form method="get" action="{{ url_for('loans') }}" class="search-toolbar"><input type="search" name="q" value="{{ query }}" placeholder="Search records…" aria-label="Search records"><select name="status" aria-label="Filter records"><option value="active" {% if status=='active' %}selected{% endif %}>Borrowed</option><option value="returned" {% if status=='returned' %}selected{% endif %}>Returned</option><option value="all" {% if status=='all' %}selected{% endif %}>All records</option></select><button class="button button-secondary" type="submit">Search</button><a class="button button-quiet" href="{{ url_for('loans') }}">Reset</a></form>
 <div class="utility-links"><a href="{{ url_for('export_csv',status=status) }}">Export CSV</a><span>·</span><a href="{{ url_for('download_backup') }}">Download backup</a></div>
-{% if loans %}<div class="table-wrap"><table><thead><tr><th>Book / record</th><th>Student</th><th>Class / roll</th><th>Due date</th><th>Status</th><th></th></tr></thead><tbody>
+{% if loans %}<div class="table-wrap"><table><thead><tr><th>Book / record</th><th>Student</th><th>Class / roll</th><th>Due date</th><th>Return</th><th>Summary</th><th></th></tr></thead><tbody>
 {% for item in loans %}<tr><td><a href="{{ url_for('loan_detail',loan_id=item.id) }}">{{ item.book_title }}</a><small>Record #{{ item.id }} · Borrowed {{ item.borrowed_at[:10] }}</small></td><td>{{ item.student_name or '—' }}</td><td>{{ item.class_name }} / {{ item.roll_number or '—' }}</td><td><strong>{{ item.due_date or 'Not set' }}</strong></td><td>
 {% if item.returned_at %}<span class="status status-returned">Returned</span>
 {% elif item.due_date and item.due_date < today_date %}<span class="status status-overdue">Overdue</span>
 {% elif item.due_date == today_date %}<span class="status status-due">Due today</span>
 {% elif item.due_date %}<span class="status status-borrowed">Borrowed</span>
 {% else %}<span class="status status-borrowed">No due date</span>{% endif %}
-</td><td><a class="row-action" href="{{ url_for('loan_detail',loan_id=item.id) }}">Open →</a></td></tr>{% endfor %}
+</td><td>{% if item.summary_status == 'submitted' %}<span class="status status-returned">Submitted</span>{% elif item.summary_status == 'not_needed' %}<span class="status status-borrowed">Not needed</span>{% else %}<span class="status status-due">Pending</span>{% endif %}</td><td><a class="row-action" href="{{ url_for('loan_detail',loan_id=item.id) }}">Open →</a></td></tr>{% endfor %}
 </tbody></table></div>
 {% else %}<div class="empty-state"><div class="empty-icon">⌕</div><h3>No matching books</h3><p>Try a different search or switch the filter.</p><a class="button button-secondary" href="{{ url_for('loans',status='all') }}">Show all records</a></div>{% endif %}
 </section>
