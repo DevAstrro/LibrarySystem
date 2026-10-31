@@ -20,6 +20,13 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # PostgreSQL is optional for local SQLite development.
+    psycopg = None
+    dict_row = None
+
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
 DEFAULT_DB = INSTANCE_DIR / "library.db"
@@ -106,12 +113,94 @@ def initialize_database(path: Path | None = None) -> None:
         """)
 
 
+class HybridRow(dict):
+    """Mapping row that also supports SQLite-style numeric indexing."""
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self.values())[key]
+        return super().__getitem__(key)
+
+
+class PostgresCursor:
+    def __init__(self, cursor, lastrowid=None):
+        self._cursor = cursor
+        self.lastrowid = lastrowid
+    def fetchone(self):
+        return self._cursor.fetchone()
+    def fetchall(self):
+        return self._cursor.fetchall()
+    @property
+    def rowcount(self):
+        return self._cursor.rowcount
+
+
+class PostgresConnection:
+    def __init__(self, raw):
+        self.raw = raw
+    def execute(self, sql, params=()):
+        query = sql.replace(" COLLATE NOCASE", "").replace(" LIKE ", " ILIKE ")
+        query = query.replace("?", "%s")
+        returning_id = bool(re.match(r"\s*INSERT\s+INTO\s+(users|loans|audit_logs)\b", query, re.I)) and "RETURNING" not in query.upper()
+        if returning_id:
+            query = query.rstrip().rstrip(";") + " RETURNING id"
+        cur = self.raw.cursor()
+        cur.execute(query, params)
+        lastrowid = None
+        if returning_id:
+            row = cur.fetchone()
+            if row:
+                lastrowid = row["id"]
+        return PostgresCursor(cur, lastrowid)
+    def commit(self):
+        self.raw.commit()
+    def rollback(self):
+        self.raw.rollback()
+    def close(self):
+        self.raw.close()
+
+
+def connect_postgres(url: str) -> PostgresConnection:
+    if psycopg is None:
+        raise RuntimeError("PostgreSQL support is missing. Install dependencies from requirements.txt.")
+    raw = psycopg.connect(url, row_factory=lambda cur: lambda values: HybridRow(zip([col.name for col in cur.description], values)), connect_timeout=10)
+    return PostgresConnection(raw)
+
+
+def initialize_postgres(url: str) -> None:
+    connection = connect_postgres(url)
+    try:
+        statements = [
+            """CREATE TABLE IF NOT EXISTS users (
+                id BIGSERIAL PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL, created_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS loans (
+                id BIGSERIAL PRIMARY KEY, book_title TEXT NOT NULL, student_name TEXT NOT NULL DEFAULT '',
+                class_name TEXT NOT NULL, roll_number TEXT NOT NULL DEFAULT '', borrowed_at TEXT NOT NULL,
+                due_date TEXT NOT NULL DEFAULT '', returned_at TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
+                created_by BIGINT NOT NULL REFERENCES users(id), updated_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS audit_logs (
+                id BIGSERIAL PRIMARY KEY, loan_id BIGINT REFERENCES loans(id), user_id BIGINT REFERENCES users(id),
+                action TEXT NOT NULL, details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)""",
+            "CREATE INDEX IF NOT EXISTS idx_loans_borrowed_at ON loans(borrowed_at)",
+            "CREATE INDEX IF NOT EXISTS idx_loans_returned_at ON loans(returned_at)",
+            "CREATE INDEX IF NOT EXISTS idx_loans_class_roll ON loans(class_name, roll_number)",
+            "CREATE INDEX IF NOT EXISTS idx_loans_book_title ON loans(book_title)",
+            "CREATE INDEX IF NOT EXISTS idx_audit_loan_id ON audit_logs(loan_id)",
+        ]
+        for statement in statements:
+            connection.execute(statement)
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     app = Flask(__name__, instance_path=str(INSTANCE_DIR), instance_relative_config=False)
     supplied_config = test_config or {}
     app.config.update(
         SECRET_KEY=supplied_config.get("SECRET_KEY") or os.environ.get("APP_SECRET_KEY") or get_or_create_secret_key(),
         DATABASE=str(supplied_config.get("DATABASE") or get_database_path()),
+        DATABASE_URL=os.environ.get("DATABASE_URL", ""),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "0") == "1",
@@ -119,12 +208,17 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
         MAX_CONTENT_LENGTH=1024 * 1024,
     )
     app.config.update(supplied_config)
-    Path(app.config["DATABASE"]).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
-    initialize_database(Path(app.config["DATABASE"]))
+    use_postgres = bool(app.config.get("DATABASE_URL")) and not ("DATABASE" in supplied_config)
+    app.config["USE_POSTGRES"] = use_postgres
+    if use_postgres:
+        initialize_postgres(app.config["DATABASE_URL"])
+    else:
+        Path(app.config["DATABASE"]).expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)
+        initialize_database(Path(app.config["DATABASE"]))
 
-    def db() -> sqlite3.Connection:
+    def db():
         if "db" not in g:
-            g.db = connect_db(Path(app.config["DATABASE"]))
+            g.db = connect_postgres(app.config["DATABASE_URL"]) if app.config["USE_POSTGRES"] else connect_db(Path(app.config["DATABASE"]))
         return g.db
 
     @app.teardown_appcontext
@@ -220,7 +314,7 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
                     session["username"] = username
                     session.permanent = True
                     return redirect(url_for("dashboard"))
-                except sqlite3.IntegrityError:
+                except Exception as exc:\n                    if not isinstance(exc, sqlite3.IntegrityError) and not (psycopg and isinstance(exc, psycopg.IntegrityError)):\n                        raise
                     db().rollback()
                     flash("That username is already in use.", "error")
         return render_template("setup.html")
@@ -395,6 +489,9 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     @app.route("/backup.sqlite")
     @login_required
     def download_backup():
+        if app.config["USE_POSTGRES"]:
+            flash("PostgreSQL is connected. Use Export CSV for a portable records backup.", "warning")
+            return redirect(url_for("loans", status="all"))
         temp = tempfile.NamedTemporaryFile(prefix="library-backup-", suffix=".sqlite", delete=False)
         temp.close()
         source = connect_db(Path(app.config["DATABASE"]))
@@ -418,9 +515,13 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
 
     @app.cli.command("check-db")
     def check_db_command():
-        result = db().execute("PRAGMA integrity_check").fetchone()[0]
+        if app.config["USE_POSTGRES"]:
+            db().execute("SELECT 1")
+            result = "PostgreSQL connection OK"
+        else:
+            result = db().execute("PRAGMA integrity_check").fetchone()[0]
         print(result)
-        if result != "ok":
+        if result != "ok" and result != "PostgreSQL connection OK":
             raise SystemExit(1)
 
     @app.cli.command("create-admin")
