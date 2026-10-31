@@ -27,9 +27,11 @@ logger = logging.getLogger("kems.performance")
 try:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 except ImportError:  # PostgreSQL is optional for local SQLite development.
     psycopg = None
     dict_row = None
+    ConnectionPool = None
 
 BASE_DIR = Path(__file__).resolve().parent
 INSTANCE_DIR = BASE_DIR / "instance"
@@ -153,8 +155,9 @@ class PostgresCursor:
 
 
 class PostgresConnection:
-    def __init__(self, raw):
+    def __init__(self, raw, pool=None):
         self.raw = raw
+        self.pool = pool
     def execute(self, sql, params=()):
         started = time.perf_counter()
         query = sql.replace(" COLLATE NOCASE", "").replace(" LIKE ", " ILIKE ")
@@ -182,7 +185,14 @@ class PostgresConnection:
     def rollback(self):
         self.raw.rollback()
     def close(self):
-        self.raw.close()
+        if self.pool is not None:
+            # A request must never return an open transaction to the shared pool.
+            try:
+                self.raw.rollback()
+            finally:
+                self.pool.putconn(self.raw)
+        else:
+            self.raw.close()
 
 
 def connect_postgres(url: str) -> PostgresConnection:
@@ -272,10 +282,29 @@ def create_app(test_config: dict[str, Any] | None = None) -> Flask:
     finally:
         bootstrap_connection.close()
 
+    # Keep a small process-local pool: Neon connections are expensive to establish
+    # and a sync Gunicorn worker handles one request at a time.
+    postgres_pool = None
+    if use_postgres:
+        if ConnectionPool is None:
+            raise RuntimeError("PostgreSQL pooling support is missing. Install dependencies from requirements.txt.")
+        postgres_pool = ConnectionPool(
+            conninfo=app.config["DATABASE_URL"],
+            min_size=1,
+            max_size=max(2, int(os.environ.get("DB_POOL_MAX_SIZE", "4"))),
+            kwargs={"row_factory": dict_row, "connect_timeout": 10},
+            open=True,
+        )
+        app.extensions["postgres_pool"] = postgres_pool
+
     def db():
         if "db" not in g:
             started = time.perf_counter()
-            g.db = connect_postgres(app.config["DATABASE_URL"]) if app.config["USE_POSTGRES"] else connect_db(Path(app.config["DATABASE"]))
+            if app.config["USE_POSTGRES"]:
+                raw = postgres_pool.getconn()
+                g.db = PostgresConnection(raw, pool=postgres_pool)
+            else:
+                g.db = connect_db(Path(app.config["DATABASE"]))
             connect_ms = (time.perf_counter() - started) * 1000
             g.db_connect_ms = connect_ms
             if connect_ms >= 150:
