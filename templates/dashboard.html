@@ -11,6 +11,7 @@
   <article class="stat-card stat-overdue"><span>Overdue</span><div class="stat-number">{{ stats.overdue or 0 }}</div></article>
   <article class="stat-card"><span>Returned</span><div class="stat-number">{{ stats.returned or 0 }}</div></article>
 </section>
+<section class="stats-grid secondary-stats"><article class="stat-card"><span>Registered students</span><div class="stat-number">{{ student_count }}</div></article><article class="stat-card stat-attention"><span>Summaries pending</span><div class="stat-number">{{ summary_pending }}</div></article></section>
 <section class="panel">
   <div class="panel-heading"><div><h2>Recent books</h2><p class="muted compact">Find a record or mark a book returned.</p></div><a class="text-link" href="{{ url_for('loans',status='active') }}">All borrowed books →</a></div>
   {% if recent %}
